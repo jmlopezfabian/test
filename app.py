@@ -275,8 +275,8 @@ def get_municipio_data(municipio):
         municipio_data = municipio_data.fillna('')
         
         data = municipio_data.to_dict('records')
-    
-    return jsonify({
+        
+        return jsonify({
             'success': True,
             'data': data,
             'municipio': municipio_decoded
@@ -660,7 +660,7 @@ def serve(path):
     if os.path.exists(app.static_folder):
         index_path = os.path.join(app.static_folder, 'index.html')
         if os.path.exists(index_path):
-    return send_from_directory(app.static_folder, 'index.html')
+            return send_from_directory(app.static_folder, 'index.html')
     
     return jsonify({'error': 'Not found'}), 404
 
