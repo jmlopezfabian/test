@@ -12,6 +12,10 @@ COPY frontend/ ./
 # Construir el frontend
 RUN npm run build
 
+# Verificar que el build fue exitoso
+RUN ls -la dist/ && echo "✓ Build completed" || echo "✗ Build failed!"
+RUN test -f dist/index.html && echo "✓ index.html created" || echo "✗ index.html NOT created!"
+
 # Stage 2: Backend con Python
 FROM python:3.11-slim
 
@@ -27,11 +31,18 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 # Instalar dependencias de Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Exponer puerto
+# Verificar que los archivos del frontend están presentes
+RUN echo "=== Verificando archivos copiados ===" && \
+    ls -la frontend/ && \
+    ls -la frontend/dist/ && \
+    test -f frontend/dist/index.html && echo "✓✓✓ index.html found ✓✓✓" || echo "✗✗✗ index.html NOT found ✗✗✗"
+
+# Exponer puerto (Railway proporciona PORT automáticamente)
 EXPOSE 5000
 
-# Variable de entorno para el puerto (Railway usa PORT automáticamente)
-ENV PORT=5000
+# Copiar script de inicio
+COPY start.sh .
+RUN chmod +x start.sh
 
-# Ejecutar con gunicorn
-CMD exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 0 app:app
+# Ejecutar con el script de inicio que incluye debugging
+CMD ["./start.sh"]
