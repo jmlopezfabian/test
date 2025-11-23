@@ -1,6 +1,7 @@
-# Frontend
-frontend/
-node_modules/
+# Frontend - pero necesitamos los archivos fuente para construir
+# frontend/
+frontend/node_modules/
+frontend/dist/
 
 # Python
 __pycache__/

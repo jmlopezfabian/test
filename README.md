@@ -93,17 +93,20 @@ Esto ejecuta solo el backend. Nota: El backend ya no sirve HTML, solo APIs.
 
 ### Opción A: Desplegar Backend y Frontend Separados (Recomendado)
 
-#### 1. Backend en Railway:
+#### 1. Desplegar Todo Junto (Backend + Frontend):
 
-El proyecto ya está configurado con un `Dockerfile` que solo construye el backend Python.
+El proyecto está configurado con un `Dockerfile` multi-stage que:
+1. Construye el frontend React
+2. Construye el backend Python
+3. Sirve ambos desde el mismo servidor Flask
 
 1. Crea un nuevo proyecto en Railway
 2. Conecta tu repositorio
-3. Railway usará automáticamente el `Dockerfile` para construir el backend
+3. Railway usará automáticamente el `Dockerfile` para construir todo
 4. El puerto se configura automáticamente mediante la variable `PORT`
-5. Anota la URL del backend (ej: `https://tu-backend.railway.app`)
+5. Tu aplicación completa estará disponible en: `https://tu-app.railway.app`
 
-**Nota**: El `Dockerfile` y `.dockerignore` están configurados para ignorar el frontend y solo construir el backend.
+**Nota**: El frontend y backend se sirven desde el mismo dominio, por lo que no necesitas configurar CORS ni variables de entorno adicionales.
 
 #### 2. Frontend en Railway (Opcional):
 
