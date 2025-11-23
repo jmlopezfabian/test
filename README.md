@@ -95,19 +95,24 @@ Esto ejecuta solo el backend. Nota: El backend ya no sirve HTML, solo APIs.
 
 #### 1. Backend en Railway:
 
+El proyecto ya está configurado con un `Dockerfile` que solo construye el backend Python.
+
 1. Crea un nuevo proyecto en Railway
 2. Conecta tu repositorio
-3. Railway detectará automáticamente Python/Flask
-4. Configura la variable de entorno `PORT` (Railway lo hace automáticamente)
+3. Railway usará automáticamente el `Dockerfile` para construir el backend
+4. El puerto se configura automáticamente mediante la variable `PORT`
 5. Anota la URL del backend (ej: `https://tu-backend.railway.app`)
 
-#### 2. Frontend en Railway:
+**Nota**: El `Dockerfile` y `.dockerignore` están configurados para ignorar el frontend y solo construir el backend.
+
+#### 2. Frontend en Railway (Opcional):
 
 1. Crea otro proyecto en Railway
 2. Conecta el mismo repositorio pero configura:
    - **Root Directory**: `frontend`
    - **Build Command**: `npm install && npm run build`
    - **Start Command**: `npx serve -s dist`
+   - Instala `serve` primero: `npm install -g serve` o usa `npx serve`
 3. Configura variable de entorno:
    - `VITE_API_URL`: URL de tu backend (ej: `https://tu-backend.railway.app/api`)
 
@@ -123,6 +128,14 @@ npm run build
 
 2. Despliega el build en Vercel/Netlify
 3. Configura `VITE_API_URL` apuntando a tu backend en Railway
+
+### Configuración del Backend
+
+El proyecto incluye:
+- `Dockerfile`: Construcción del backend Python
+- `.dockerignore`: Excluye frontend y archivos innecesarios
+- `railway.json`: Configuración de Railway para usar Dockerfile
+- `Procfile`: Comando alternativo de inicio (si no usas Dockerfile)
 
 ## 🔧 Configuración de Desarrollo
 

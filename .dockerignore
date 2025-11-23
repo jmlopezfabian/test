@@ -1,0 +1,50 @@
+# Frontend
+frontend/
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+env/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Railway
+.railway/
+.railwayignore
+
+# Documentation
+README.md
+*.md
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Templates (no necesarios para el backend API)
+templates/
+
+# Scripts de desarrollo
+run.sh
+package.json
+package-lock.json
+
