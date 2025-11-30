@@ -158,12 +158,15 @@ def get_data():
         limit = request.args.get('limit', type=int)
         columns = request.args.get('columns')  # coma separada
         municipio = request.args.get('municipio')
+        municipios = request.args.getlist('municipios')  # Lista de municipios
         from_date = request.args.get('from')
         to_date = request.args.get('to')
         year = request.args.get('year', type=int)
 
         # Filtros
-        if municipio and 'Municipio' in df.columns:
+        if municipios and 'Municipio' in df.columns:
+            df = df[df['Municipio'].str.lower().isin([m.lower() for m in municipios])]
+        elif municipio and 'Municipio' in df.columns:
             df = df[df['Municipio'].str.lower() == municipio.lower()]
         if from_date and 'Fecha' in df.columns and pd.api.types.is_datetime64_any_dtype(df['Fecha']):
             df = df[df['Fecha'] >= pd.to_datetime(from_date)]
@@ -559,13 +562,16 @@ def get_pib_data_endpoint():
         limit = request.args.get('limit', type=int)
         columns = request.args.get('columns')
         municipio = request.args.get('municipio')
+        municipios = request.args.getlist('municipios')  # Lista de municipios
         entidad = request.args.get('entidad')
         from_date = request.args.get('from')
         to_date = request.args.get('to')
         year = request.args.get('year', type=int)
 
         # Filtros
-        if municipio and 'municipio' in df.columns:
+        if municipios and 'municipio' in df.columns:
+            df = df[df['municipio'].str.lower().isin([m.lower() for m in municipios])]
+        elif municipio and 'municipio' in df.columns:
             df = df[df['municipio'].str.lower() == municipio.lower()]
         if entidad and 'entidad_federativa' in df.columns:
             df = df[df['entidad_federativa'].str.lower() == entidad.lower()]
@@ -880,6 +886,311 @@ def download_pib_data():
     except Exception as e:
         import traceback
         error_msg = f"Error en download_pib_data: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc() if app.debug else None
+        }), 500
+
+@app.route('/api/eda/combined', methods=['GET'])
+def get_combined_data():
+    """Endpoint para obtener datos combinados de PIB y Radianza para análisis EDA"""
+    try:
+        # Obtener parámetros de filtro
+        municipios = request.args.getlist('municipios')
+        
+        # Obtener datos de radianza
+        df_radianza = get_blob_data().copy()
+        
+        # Filtrar por municipios si se especifican
+        if municipios and 'Municipio' in df_radianza.columns:
+            df_radianza = df_radianza[
+                df_radianza['Municipio'].str.lower().isin([m.lower() for m in municipios])
+            ]
+        
+        # Obtener datos de PIB
+        df_pib = get_pib_data().copy()
+        
+        # Filtrar por municipios si se especifican
+        if municipios and 'municipio' in df_pib.columns:
+            df_pib = df_pib[
+                df_pib['municipio'].str.lower().isin([m.lower() for m in municipios])
+            ]
+        
+        # Normalizar nombres de columnas para el merge
+        # Radianza usa 'Municipio' y 'Fecha', PIB usa 'municipio' y 'fecha'
+        if 'Municipio' in df_radianza.columns:
+            df_radianza['municipio_normalized'] = df_radianza['Municipio'].str.lower().str.strip()
+        if 'Fecha' in df_radianza.columns:
+            if not pd.api.types.is_datetime64_any_dtype(df_radianza['Fecha']):
+                df_radianza['Fecha'] = pd.to_datetime(df_radianza['Fecha'], errors='coerce')
+            df_radianza['fecha'] = df_radianza['Fecha'].dt.date if pd.api.types.is_datetime64_any_dtype(df_radianza['Fecha']) else df_radianza['Fecha']
+        
+        if 'municipio' in df_pib.columns:
+            df_pib['municipio_normalized'] = df_pib['municipio'].str.lower().str.strip()
+        if 'fecha' in df_pib.columns:
+            if not pd.api.types.is_datetime64_any_dtype(df_pib['fecha']):
+                df_pib['fecha'] = pd.to_datetime(df_pib['fecha'], errors='coerce')
+            df_pib['fecha'] = df_pib['fecha'].dt.date if pd.api.types.is_datetime64_any_dtype(df_pib['fecha']) else df_pib['fecha']
+        
+        # Hacer merge por municipio y fecha
+        # Primero intentar merge exacto por municipio y fecha
+        merged = pd.merge(
+            df_radianza,
+            df_pib[['municipio_normalized', 'fecha', 'pib_mun', 'pibe', 'porc_pob']],
+            left_on=['municipio_normalized', 'fecha'],
+            right_on=['municipio_normalized', 'fecha'],
+            how='inner'
+        )
+        
+        # Si no hay suficientes datos con merge exacto, intentar solo por municipio (promedio)
+        if len(merged) < 100:
+            # Agrupar PIB por municipio (promedio)
+            pib_avg = df_pib.groupby('municipio_normalized').agg({
+                'pib_mun': 'mean',
+                'pibe': 'mean',
+                'porc_pob': 'mean'
+            }).reset_index()
+            
+            # Merge solo por municipio
+            merged = pd.merge(
+                df_radianza,
+                pib_avg,
+                on='municipio_normalized',
+                how='inner'
+            )
+        
+        # Seleccionar columnas relevantes
+        result_columns = []
+        if 'Municipio' in merged.columns:
+            result_columns.append('Municipio')
+        elif 'municipio' in merged.columns:
+            result_columns.append('municipio')
+        if 'Media_de_radianza' in merged.columns:
+            result_columns.append('Media_de_radianza')
+        if 'pib_mun' in merged.columns:
+            result_columns.append('pib_mun')
+        if 'pibe' in merged.columns:
+            result_columns.append('pibe')
+        if 'porc_pob' in merged.columns:
+            result_columns.append('porc_pob')
+        if 'Fecha' in merged.columns:
+            result_columns.append('Fecha')
+        elif 'fecha' in merged.columns:
+            result_columns.append('fecha')
+        
+        merged = merged[result_columns]
+        
+        # Limpiar datos
+        merged = merged.replace([float('inf'), float('-inf')], None)
+        merged = merged.fillna('')
+        
+        # Convertir fechas a string
+        for col in ['Fecha', 'fecha']:
+            if col in merged.columns:
+                if pd.api.types.is_datetime64_any_dtype(merged[col]):
+                    merged[col] = merged[col].dt.strftime('%Y-%m-%d')
+                else:
+                    merged[col] = merged[col].astype(str)
+        
+        data = merged.to_dict('records')
+        
+        return jsonify({
+            'success': True,
+            'data': data,
+            'total_records': len(data)
+        })
+    except Exception as e:
+        import traceback
+        error_msg = f"Error en get_combined_data: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc() if app.debug else None
+        }), 500
+
+@app.route('/api/eda/quarterly', methods=['GET'])
+def get_quarterly_combined_data():
+    """Endpoint para obtener datos combinados de PIB y Radianza agregados por trimestre"""
+    try:
+        # Obtener parámetros de filtro
+        municipios = request.args.getlist('municipios')
+        
+        # Obtener datos de radianza
+        df_radianza = get_blob_data().copy()
+        
+        # Filtrar por municipios si se especifican
+        if municipios and 'Municipio' in df_radianza.columns:
+            df_radianza = df_radianza[
+                df_radianza['Municipio'].str.lower().isin([m.lower() for m in municipios])
+            ]
+        
+        # Obtener datos de PIB
+        df_pib = get_pib_data().copy()
+        
+        # Filtrar por municipios si se especifican
+        if municipios and 'municipio' in df_pib.columns:
+            df_pib = df_pib[
+                df_pib['municipio'].str.lower().isin([m.lower() for m in municipios])
+            ]
+        
+        # Preparar datos de radianza
+        if 'Fecha' in df_radianza.columns:
+            if not pd.api.types.is_datetime64_any_dtype(df_radianza['Fecha']):
+                df_radianza['Fecha'] = pd.to_datetime(df_radianza['Fecha'], errors='coerce')
+            df_radianza = df_radianza.dropna(subset=['Fecha'])
+            df_radianza['quarter'] = df_radianza['Fecha'].dt.to_period('Q').astype(str)
+        
+        # Preparar datos de PIB
+        if 'fecha' in df_pib.columns:
+            if not pd.api.types.is_datetime64_any_dtype(df_pib['fecha']):
+                df_pib['fecha'] = pd.to_datetime(df_pib['fecha'], errors='coerce')
+            df_pib = df_pib.dropna(subset=['fecha'])
+            df_pib['quarter'] = df_pib['fecha'].dt.to_period('Q').astype(str)
+        
+        # Convertir columnas numéricas de radianza a tipo numérico
+        radianza_numeric_cols = [
+            'Cantidad_de_pixeles', 'total_pixeles', 'Suma_de_radianza', 
+            'Media_de_radianza', 'Desviacion_estandar_de_radianza',
+            'Maximo_de_radianza', 'Minimo_de_radianza',
+            'Percentil_25_de_radianza', 'Percentil_50_de_radianza', 'Percentil_75_de_radianza'
+        ]
+        
+        for col in radianza_numeric_cols:
+            if col in df_radianza.columns:
+                # Convertir a numérico, reemplazando comas por puntos y manejando errores
+                df_radianza[col] = pd.to_numeric(
+                    df_radianza[col].astype(str).str.replace(',', '.'), 
+                    errors='coerce'
+                )
+        
+        # Agrupar radianza por trimestre
+        radianza_agg_cols = {}
+        
+        # Verificar qué columnas existen y agregarlas
+        if 'Cantidad_de_pixeles' in df_radianza.columns:
+            radianza_agg_cols['Cantidad_de_pixeles'] = 'median'
+        elif 'total_pixeles' in df_radianza.columns:
+            radianza_agg_cols['total_pixeles'] = 'median'
+        
+        if 'Suma_de_radianza' in df_radianza.columns:
+            radianza_agg_cols['Suma_de_radianza'] = ['sum', 'median', 'std', 'mean']
+        
+        if 'Media_de_radianza' in df_radianza.columns:
+            radianza_agg_cols['Media_de_radianza'] = 'mean'
+        
+        if 'Desviacion_estandar_de_radianza' in df_radianza.columns:
+            radianza_agg_cols['Desviacion_estandar_de_radianza'] = 'mean'
+        
+        if 'Maximo_de_radianza' in df_radianza.columns:
+            radianza_agg_cols['Maximo_de_radianza'] = 'max'
+        
+        if 'Minimo_de_radianza' in df_radianza.columns:
+            radianza_agg_cols['Minimo_de_radianza'] = 'min'
+        
+        if 'Percentil_25_de_radianza' in df_radianza.columns:
+            radianza_agg_cols['Percentil_25_de_radianza'] = 'mean'
+        
+        if 'Percentil_50_de_radianza' in df_radianza.columns:
+            radianza_agg_cols['Percentil_50_de_radianza'] = 'mean'
+        
+        if 'Percentil_75_de_radianza' in df_radianza.columns:
+            radianza_agg_cols['Percentil_75_de_radianza'] = 'mean'
+        
+        # Agrupar radianza por trimestre
+        if radianza_agg_cols and 'quarter' in df_radianza.columns:
+            mont_trend_quarter = df_radianza.groupby('quarter').agg(radianza_agg_cols).reset_index()
+            
+            # Aplanar MultiIndex si existe
+            if isinstance(mont_trend_quarter.columns, pd.MultiIndex):
+                mont_trend_quarter.columns = ['_'.join(col).strip('_') if col[1] else col[0] 
+                                             for col in mont_trend_quarter.columns.values]
+        else:
+            mont_trend_quarter = pd.DataFrame(columns=['quarter'])
+        
+        # Convertir columnas numéricas de PIB a tipo numérico
+        pib_numeric_cols = ['pib_mun', 'pibe', 'porc_pob']
+        
+        import re
+        for col in pib_numeric_cols:
+            if col in df_pib.columns:
+                # Función para extraer el primer número válido de un string
+                def extract_first_number(val):
+                    if pd.isna(val) or val == '':
+                        return None
+                    val_str = str(val).replace(',', '.')
+                    # Buscar el primer número válido (puede tener decimales)
+                    match = re.search(r'^(\d+\.?\d*)', val_str)
+                    if match:
+                        try:
+                            return float(match.group(1))
+                        except:
+                            return None
+                    return None
+                
+                # Primero intentar convertir directamente
+                df_pib[col] = pd.to_numeric(
+                    df_pib[col].astype(str).str.replace(',', '.'), 
+                    errors='coerce'
+                )
+                
+                # Si todavía hay valores no numéricos (objeto), extraer el primer número
+                if df_pib[col].dtype == 'object':
+                    df_pib[col] = df_pib[col].apply(extract_first_number)
+                    df_pib[col] = pd.to_numeric(df_pib[col], errors='coerce')
+        
+        # Agrupar PIB por trimestre
+        pib_agg_cols = {}
+        if 'pib_mun' in df_pib.columns:
+            pib_agg_cols['pib_mun'] = ['mean', 'median', 'sum', 'std']
+        if 'pibe' in df_pib.columns:
+            pib_agg_cols['pibe'] = ['mean', 'median']
+        if 'porc_pob' in df_pib.columns:
+            pib_agg_cols['porc_pob'] = 'mean'
+        
+        if pib_agg_cols and 'quarter' in df_pib.columns:
+            # Filtrar solo las filas donde las columnas numéricas no sean NaN antes de agrupar
+            pib_trend = df_pib.groupby('quarter').agg(pib_agg_cols).reset_index()
+            
+            # Aplanar MultiIndex si existe
+            if isinstance(pib_trend.columns, pd.MultiIndex):
+                pib_trend.columns = ['_'.join(col).strip('_') if col[1] else col[0] 
+                                    for col in pib_trend.columns.values]
+        else:
+            pib_trend = pd.DataFrame(columns=['quarter'])
+        
+        # Hacer merge por trimestre
+        if len(mont_trend_quarter) > 0 and len(pib_trend) > 0:
+            merged_quarter = pd.merge(
+                mont_trend_quarter,
+                pib_trend,
+                on='quarter',
+                how='inner',
+                suffixes=('_luz', '_pib')
+            )
+        else:
+            merged_quarter = pd.DataFrame()
+        
+        # Limpiar datos
+        if len(merged_quarter) > 0:
+            merged_quarter = merged_quarter.replace([float('inf'), float('-inf')], None)
+            merged_quarter = merged_quarter.fillna(0)
+            
+            # Convertir a dict para JSON
+            data = merged_quarter.to_dict('records')
+        else:
+            data = []
+        
+        return jsonify({
+            'success': True,
+            'data': data,
+            'total_records': len(data)
+        })
+    except Exception as e:
+        import traceback
+        error_msg = f"Error en get_quarterly_combined_data: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
         return jsonify({
             'success': False,
